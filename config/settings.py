@@ -1,4 +1,4 @@
-﻿import os
+import os
 from pathlib import Path
 from datetime import timedelta
 from dotenv import load_dotenv
@@ -8,7 +8,8 @@ load_dotenv(BASE_DIR / '.env')
 
 SECRET_KEY = os.getenv('SECRET_KEY', 'medistock-super-secret-key-change-in-production-2026')
 DEBUG = os.getenv('DEBUG', 'True').lower() in ('true', '1', 't')
-ALLOWED_HOSTS = [h.strip() for h in os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1,0.0.0.0').split(',') if h.strip()]
+ALLOWED_HOSTS = [h.strip() for h in os.getenv('ALLOWED_HOSTS', '*,localhost,127.0.0.1,0.0.0.0,.onrender.com,.railway.app').split(',') if h.strip()]
+CSRF_TRUSTED_ORIGINS = ['https://*.onrender.com', 'https://*.railway.app', 'http://localhost:8000', 'http://127.0.0.1:8000']
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -37,6 +38,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -100,6 +102,14 @@ USE_TZ = True
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_DIRS = [BASE_DIR / 'static'] if (BASE_DIR / 'static').exists() else []
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
