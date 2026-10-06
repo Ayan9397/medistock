@@ -1,13 +1,14 @@
 # 🚀 MediStock — Intelligent Medical Store & Pharmacy Management Platform
 
+[![Live Demo](https://img.shields.io/badge/Live_Demo-medistock--0irl.onrender.com-success.svg?style=for-the-badge&logo=render)](https://medistock-0irl.onrender.com)
+[![Swagger](https://img.shields.io/badge/API_Docs-Interactive_Swagger-85EA2D.svg?style=for-the-badge&logo=swagger)](https://medistock-0irl.onrender.com/api/v1/schema/swagger-ui/)
+
 [![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12%20%7C%203.13-blue.svg)](https://www.python.org/)
 [![Django](https://img.shields.io/badge/Django-5.0+-092E20.svg)](https://www.djangoproject.com/)
 [![DRF](https://img.shields.io/badge/Django_REST_Framework-3.14+-red.svg)](https://www.django-rest-framework.org/)
 [![React](https://img.shields.io/badge/React-18.x-61DAFB.svg)](https://react.dev/)
-[![MySQL](https://img.shields.io/badge/Database-MySQL%20%7C%20SQLite-4479A1.svg)](https://www.mysql.com/)
 [![Tests](https://img.shields.io/badge/Pytest-21%20Passed%20(100%25)-brightgreen.svg)](https://pytest.org/)
 [![Docker](https://img.shields.io/badge/Docker-Containerized-2496ED.svg)](https://www.docker.com/)
-[![Swagger](https://img.shields.io/badge/API_Docs-OpenAPI_3.0_Spectacular-85EA2D.svg)](http://localhost:8000/api/v1/schema/swagger-ui/)
 
 MediStock is an enterprise-grade medical store and pharmacy operations platform engineered with **Django REST Framework**, **MySQL/Django ORM**, and **React.js**. It features a **transactional FEFO (First Expiry, First Out) allocation algorithm**, multi-batch pharmaceutical tracking, real-time expiry classification, POS billing with invoice generation, prescription verification workflows, supplier purchasing, and an analytical KPI telemetry dashboard.
 
