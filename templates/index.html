@@ -9,21 +9,31 @@
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
-    body { font-family: 'Inter', sans-serif; background-color: #090d16; color: #f8fafc; }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+    body { font-family: 'Inter', sans-serif; background-color: #0b0f19; color: #f8fafc; }
     .mono { font-family: 'JetBrains Mono', monospace; }
   </style>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen">
   <div id="root"></div>
+
   <script type="text/babel">
-    const { useState, useEffect, useMemo } = React;
+    const { useState, useEffect, useMemo, useCallback } = React;
     const API_BASE = '/api/v1';
+
+    const USERS_CONFIG = {
+      ADMIN: { username: 'admin', password: 'admin123', label: 'Administrator', full_name: 'Sarah Connor', role: 'ADMIN' },
+      PHARMACIST: { username: 'pharmacist', password: 'pharma123', label: 'Pharmacist', full_name: 'Dr. Marcus Vance', role: 'PHARMACIST' },
+      INVENTORY_MANAGER: { username: 'inventory', password: 'inv123', label: 'Inventory Head', full_name: 'Elena Rostova', role: 'INVENTORY_MANAGER' },
+      CUSTOMER: { username: 'customer', password: 'cust123', label: 'Customer Portal', full_name: 'John Doe', role: 'CUSTOMER' }
+    };
 
     function App() {
       const [currentRole, setCurrentRole] = useState('ADMIN');
       const [activeTab, setActiveTab] = useState('dashboard');
-      const [currentUser, setCurrentUser] = useState({ username: 'admin', role: 'ADMIN', full_name: 'Sarah Connor', label: 'Administrator' });
+      const [token, setToken] = useState(null);
+      const [currentUser, setCurrentUser] = useState(USERS_CONFIG.ADMIN);
+      
       const [medicines, setMedicines] = useState([]);
       const [batches, setBatches] = useState([]);
       const [alerts, setAlerts] = useState(null);
@@ -32,35 +42,80 @@
       const [purchases, setPurchases] = useState([]);
       const [customers, setCustomers] = useState([]);
       const [notification, setNotification] = useState(null);
+      const [loading, setLoading] = useState(false);
 
       const notify = (msg, type = 'success') => {
         setNotification({ msg, type });
-        setTimeout(() => setNotification(null), 3500);
+        setTimeout(() => setNotification(null), 3800);
       };
 
-      const switchRole = (roleName) => {
-        setCurrentRole(roleName);
-        const rolesMap = {
-          ADMIN: { username: 'admin', role: 'ADMIN', full_name: 'Sarah Connor', label: 'Administrator' },
-          PHARMACIST: { username: 'pharmacist', role: 'PHARMACIST', full_name: 'Dr. Marcus Vance', label: 'Registered Pharmacist' },
-          INVENTORY_MANAGER: { username: 'inventory', role: 'INVENTORY_MANAGER', full_name: 'Elena Rostova', label: 'Inventory Head' },
-          CUSTOMER: { username: 'customer', role: 'CUSTOMER', full_name: 'John Doe', label: 'Customer Portal' }
+      // Authenticated fetch helper
+      const apiFetch = useCallback(async (path, options = {}) => {
+        const headers = {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+          ...(options.headers || {})
         };
-        setCurrentUser(rolesMap[roleName]);
-        notify(Switched role to: );
+        return fetch(`${API_BASE}${path}`, { ...options, headers });
+      }, [token]);
+
+      // Login and obtain JWT token for selected role
+      const authenticateRole = async (roleKey) => {
+        const conf = USERS_CONFIG[roleKey] || USERS_CONFIG.ADMIN;
+        try {
+          const res = await fetch(`${API_BASE}/auth/login/`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: conf.username, password: conf.password })
+          });
+          if (res.ok) {
+            const data = await res.json();
+            setToken(data.access);
+            setCurrentRole(roleKey);
+            setCurrentUser(conf);
+            return data.access;
+          } else {
+            console.warn('Authentication failed for role:', roleKey);
+          }
+        } catch (err) {
+          console.error('Login error:', err);
+        }
+        return null;
       };
 
-      const fetchData = async () => {
+      // Initial login on mount
+      useEffect(() => {
+        authenticateRole('ADMIN').then(jwt => {
+          if (jwt) fetchAllData(jwt);
+        });
+      }, []);
+
+      const switchRole = async (newRole) => {
+        const jwt = await authenticateRole(newRole);
+        if (jwt) {
+          notify(`Switched to: ${USERS_CONFIG[newRole].label} (JWT Authenticated)`);
+          fetchAllData(jwt);
+        } else {
+          notify(`Failed to authenticate as ${newRole}`, 'error');
+        }
+      };
+
+      const fetchAllData = async (activeJwt = token) => {
+        if (!activeJwt) return;
+        setLoading(true);
+        const authHeader = { 'Authorization': `Bearer ${activeJwt}` };
+
         try {
           const [kpiRes, medRes, batchRes, alertRes, rxRes, poRes, custRes] = await Promise.all([
-            fetch(${API_BASE}/analytics/kpis/).then(r => r.ok ? r.json() : null),
-            fetch(${API_BASE}/medicines/).then(r => r.ok ? r.json() : { results: [] }),
-            fetch(${API_BASE}/inventory/batches/).then(r => r.ok ? r.json() : { results: [] }),
-            fetch(${API_BASE}/inventory/alerts/).then(r => r.ok ? r.json() : null),
-            fetch(${API_BASE}/prescriptions/).then(r => r.ok ? r.json() : { results: [] }),
-            fetch(${API_BASE}/purchases/).then(r => r.ok ? r.json() : { results: [] }),
-            fetch(${API_BASE}/customers/).then(r => r.ok ? r.json() : { results: [] })
+            fetch(`${API_BASE}/analytics/kpis/`, { headers: authHeader }).then(r => r.ok ? r.json() : null).catch(() => null),
+            fetch(`${API_BASE}/medicines/`, { headers: authHeader }).then(r => r.ok ? r.json() : { results: [] }).catch(() => ({ results: [] })),
+            fetch(`${API_BASE}/inventory/batches/`, { headers: authHeader }).then(r => r.ok ? r.json() : { results: [] }).catch(() => ({ results: [] })),
+            fetch(`${API_BASE}/inventory/alerts/`, { headers: authHeader }).then(r => r.ok ? r.json() : null).catch(() => null),
+            fetch(`${API_BASE}/prescriptions/`, { headers: authHeader }).then(r => r.ok ? r.json() : { results: [] }).catch(() => ({ results: [] })),
+            fetch(`${API_BASE}/purchases/`, { headers: authHeader }).then(r => r.ok ? r.json() : { results: [] }).catch(() => ({ results: [] })),
+            fetch(`${API_BASE}/customers/`, { headers: authHeader }).then(r => r.ok ? r.json() : { results: [] }).catch(() => ({ results: [] }))
           ]);
+
           if (kpiRes) setKpis(kpiRes);
           if (medRes) setMedicines(medRes.results || medRes);
           if (batchRes) setBatches(batchRes.results || batchRes);
@@ -69,112 +124,180 @@
           if (poRes) setPurchases(poRes.results || poRes);
           if (custRes) setCustomers(custRes.results || custRes);
         } catch (e) {
-          console.error(e);
+          console.error('Data sync error:', e);
+        } finally {
+          setLoading(false);
         }
       };
 
-      useEffect(() => { fetchData(); }, []);
+      const navItems = [
+        { id: 'dashboard', label: 'Analytics Dashboard', icon: '📊', roles: ['ADMIN', 'PHARMACIST', 'INVENTORY_MANAGER'] },
+        { id: 'pos', label: 'POS Billing & FEFO', icon: '💳', roles: ['ADMIN', 'PHARMACIST'] },
+        { id: 'inventory', label: 'Medicines & Batches', icon: '💊', roles: ['ADMIN', 'PHARMACIST', 'INVENTORY_MANAGER'] },
+        { id: 'expiry', label: 'Expiry & Alerts', icon: '⚠️', roles: ['ADMIN', 'PHARMACIST', 'INVENTORY_MANAGER'], badge: alerts?.expiry_monitor?.critical_count || 0 },
+        { id: 'purchases', label: 'Suppliers & Purchases', icon: '📦', roles: ['ADMIN', 'INVENTORY_MANAGER'] },
+        { id: 'prescriptions', label: 'Prescriptions', icon: '📋', roles: ['ADMIN', 'PHARMACIST', 'CUSTOMER'] },
+        { id: 'customers', label: 'Customers', icon: '👥', roles: ['ADMIN', 'PHARMACIST'] },
+      ];
+
+      const visibleNav = navItems.filter(it => it.roles.includes(currentRole));
+
+      useEffect(() => {
+        if (!visibleNav.some(it => it.id === activeTab) && visibleNav.length > 0) {
+          setActiveTab(visibleNav[0].id);
+        }
+      }, [currentRole]);
 
       return (
         <div className="flex h-screen bg-slate-950 overflow-hidden text-slate-100">
+          {/* Notification Toast */}
           {notification && (
-            <div className={ixed bottom-5 right-5 z-50 px-4 py-3 rounded-xl border flex items-center gap-2 shadow-2xl }>
-              <span className="w-2 h-2 rounded-full bg-current animate-pulse"></span>
+            <div className={`fixed bottom-5 right-5 z-50 px-4 py-3 rounded-xl border flex items-center gap-2.5 shadow-2xl transition-all ${
+              notification.type === 'error' ? 'bg-rose-950/90 border-rose-700 text-rose-200' : 'bg-slate-900/95 border-emerald-500/40 text-emerald-300'
+            }`}>
+              <span className={`w-2 h-2 rounded-full animate-pulse ${notification.type === 'error' ? 'bg-rose-400' : 'bg-emerald-400'}`}></span>
               <span className="text-xs font-semibold">{notification.msg}</span>
             </div>
           )}
 
           {/* Sidebar */}
-          <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col justify-between shrink-0">
+          <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col justify-between shrink-0 select-none">
             <div>
+              {/* Brand Header */}
               <div className="px-5 py-4 border-b border-slate-800 flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center font-black text-white text-lg shadow-lg">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center font-black text-white text-xl shadow-lg shadow-cyan-500/20">
                   M
                 </div>
                 <div>
                   <h1 className="font-bold text-sm text-white flex items-center gap-1.5">
-                    MediStock <span className="text-[10px] bg-blue-500/20 text-blue-400 px-1 rounded">v1</span>
+                    MediStock <span className="text-[10px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded font-mono font-bold">v1.0</span>
                   </h1>
-                  <p className="text-[11px] text-slate-400">Intelligent Pharmacy OS</p>
+                  <p className="text-[11px] text-slate-400">Intelligent Pharmacy Platform</p>
                 </div>
               </div>
 
-              {/* Role Selector */}
-              <div className="p-3 mx-3 my-3 bg-slate-950 rounded-xl border border-slate-800 text-xs">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">Role Switcher (RBAC)</span>
-                <div className="grid grid-cols-2 gap-1">
-                  {['ADMIN', 'PHARMACIST', 'INVENTORY_MANAGER', 'CUSTOMER'].map(r => (
+              {/* RBAC Role Switcher */}
+              <div className="p-3 mx-3 my-3 bg-slate-950 rounded-xl border border-slate-800 text-xs shadow-inner">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Role Switcher (RBAC)</span>
+                  <span className="text-[9px] bg-cyan-950 text-cyan-400 px-1.5 py-0.5 rounded font-mono font-semibold border border-cyan-800/60">JWT Auth</span>
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {Object.keys(USERS_CONFIG).map(rKey => (
                     <button
-                      key={r}
-                      onClick={() => switchRole(r)}
-                      className={px-2 py-1 rounded text-[11px] font-medium text-left }
+                      key={rKey}
+                      onClick={() => switchRole(rKey)}
+                      className={`px-2 py-1.5 rounded-lg text-[11px] font-semibold text-center transition-all ${
+                        currentRole === rKey
+                          ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30 font-bold'
+                          : 'bg-slate-900 text-slate-400 hover:text-slate-200 hover:bg-slate-850'
+                      }`}
                     >
-                      {r === 'INVENTORY_MANAGER' ? 'Inventory' : r.charAt(0) + r.slice(1).toLowerCase()}
+                      {rKey === 'INVENTORY_MANAGER' ? 'Inventory' : rKey.charAt(0) + rKey.slice(1).toLowerCase()}
                     </button>
                   ))}
                 </div>
-                <div className="mt-2 pt-1.5 border-t border-slate-800 text-[10px] text-slate-400 flex justify-between">
-                  <span>User:</span>
-                  <span className="text-slate-200 font-medium">{currentUser.full_name}</span>
+                <div className="mt-2.5 pt-2 border-t border-slate-800/80 text-[10px] text-slate-400 flex justify-between items-center">
+                  <span>Active User:</span>
+                  <span className="text-slate-200 font-medium truncate max-w-[120px]">{currentUser.full_name}</span>
                 </div>
               </div>
 
-              {/* Navigation Links */}
+              {/* Navigation Menu */}
               <nav className="px-3 space-y-1 text-xs">
-                {[
-                  { id: 'dashboard', label: 'Analytics Dashboard', icon: '📊', roles: ['ADMIN', 'PHARMACIST', 'INVENTORY_MANAGER'] },
-                  { id: 'pos', label: 'POS Billing & FEFO', icon: '💳', roles: ['ADMIN', 'PHARMACIST'] },
-                  { id: 'inventory', label: 'Medicines & Batches', icon: '💊', roles: ['ADMIN', 'PHARMACIST', 'INVENTORY_MANAGER'] },
-                  { id: 'expiry', label: 'Expiry & Alerts', icon: '⚠️', roles: ['ADMIN', 'PHARMACIST', 'INVENTORY_MANAGER'], badge: alerts?.expiry_monitor?.critical_count },
-                  { id: 'purchases', label: 'Suppliers & Purchases', icon: '📦', roles: ['ADMIN', 'INVENTORY_MANAGER'] },
-                  { id: 'prescriptions', label: 'Prescriptions', icon: '📋', roles: ['ADMIN', 'PHARMACIST', 'CUSTOMER'] },
-                  { id: 'customers', label: 'Customers', icon: '👥', roles: ['ADMIN', 'PHARMACIST'] },
-                ].filter(it => it.roles.includes(currentRole)).map(it => (
-                  <button
-                    key={it.id}
-                    onClick={() => setActiveTab(it.id)}
-                    className={w-full flex items-center justify-between px-3 py-2 rounded-lg font-medium transition-all }
-                  >
-                    <span className="flex items-center gap-2"><span>{it.icon}</span><span>{it.label}</span></span>
-                    {it.badge > 0 && <span className="px-1.5 py-0.2 bg-rose-500/20 text-rose-400 text-[10px] font-bold rounded-full">{it.badge}</span>}
-                  </button>
-                ))}
+                {visibleNav.map(it => {
+                  const isActive = activeTab === it.id;
+                  return (
+                    <button
+                      key={it.id}
+                      onClick={() => setActiveTab(it.id)}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-all ${
+                        isActive
+                          ? 'bg-blue-600/15 text-blue-400 border border-blue-500/30 shadow-sm font-semibold'
+                          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2.5">
+                        <span className="text-base">{it.icon}</span>
+                        <span>{it.label}</span>
+                      </span>
+                      {it.badge > 0 && (
+                        <span className="px-1.5 py-0.5 bg-rose-500/20 text-rose-400 text-[10px] font-bold rounded-full font-mono">
+                          {it.badge}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
               </nav>
             </div>
 
-            <div className="p-3 border-t border-slate-800 text-xs">
-              <a href="/api/v1/schema/swagger-ui/" target="_blank" className="flex items-center justify-between px-3 py-2 rounded-lg text-slate-400 hover:text-cyan-400 hover:bg-slate-800">
-                <span>⚡ Swagger Docs</span>
-                <span>↗</span>
+            {/* Bottom Links */}
+            <div className="p-3 border-t border-slate-800 text-xs space-y-1">
+              <a
+                href="/api/v1/schema/swagger-ui/"
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center justify-between px-3 py-2 rounded-lg text-slate-400 hover:text-cyan-400 hover:bg-slate-800/60 transition-colors"
+              >
+                <span className="flex items-center gap-2">⚡ <span>Swagger API Docs</span></span>
+                <span className="text-xs text-slate-500">↗</span>
+              </a>
+              <a
+                href="/admin/"
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center justify-between px-3 py-2 rounded-lg text-slate-400 hover:text-cyan-400 hover:bg-slate-800/60 transition-colors"
+              >
+                <span className="flex items-center gap-2">⚙️ <span>Django Admin</span></span>
+                <span className="text-xs text-slate-500">↗</span>
               </a>
             </div>
           </aside>
 
-          {/* Main Content */}
-          <main className="flex-1 flex flex-col overflow-hidden">
-            <header className="h-14 px-6 border-b border-slate-800 flex items-center justify-between bg-slate-900/60 shrink-0">
-              <div className="flex items-center gap-2 text-xs">
+          {/* Main Workspace Area */}
+          <main className="flex-1 flex flex-col overflow-hidden bg-slate-950">
+            {/* Topbar */}
+            <header className="h-14 px-6 border-b border-slate-800 flex items-center justify-between bg-slate-900/60 backdrop-blur shrink-0">
+              <div className="flex items-center gap-2.5 text-xs">
                 <span className="text-slate-500 uppercase font-bold tracking-wider">Module</span>
-                <span className="text-slate-600">/</span>
-                <span className="text-white font-semibold capitalize">{activeTab}</span>
+                <span className="text-slate-700">/</span>
+                <span className="text-white font-semibold capitalize text-sm">
+                  {visibleNav.find(n => n.id === activeTab)?.label || activeTab}
+                </span>
               </div>
               <div className="flex items-center gap-3">
-                <button onClick={fetchData} className="px-2.5 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded border border-slate-700">
-                  🔄 Refresh
+                <button
+                  onClick={() => fetchAllData(token)}
+                  disabled={loading}
+                  className="px-3 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 active:bg-slate-650 text-slate-300 rounded-lg border border-slate-700 flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                >
+                  <span className={loading ? 'animate-spin inline-block' : ''}>🔄</span>
+                  <span>{loading ? 'Refreshing...' : 'Refresh'}</span>
                 </button>
-                <span className="text-xs text-slate-400 font-mono bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/20">
-                  API Online
-                </span>
+                <div className="flex items-center gap-1.5 text-xs font-mono bg-emerald-500/10 text-emerald-400 px-2.5 py-1 rounded-lg border border-emerald-500/20">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <span>FEFO Engine Online</span>
+                </div>
               </div>
             </header>
 
+            {/* Tab Body */}
             <div className="flex-1 overflow-y-auto p-6">
               {activeTab === 'dashboard' && <DashboardComponent kpis={kpis} setActiveTab={setActiveTab} />}
-              {activeTab === 'pos' && <POSComponent medicines={medicines} onDone={fetchData} notify={notify} />}
+              {activeTab === 'pos' && <POSComponent medicines={medicines} onDone={() => fetchAllData(token)} notify={notify} apiFetch={apiFetch} />}
               {activeTab === 'inventory' && <InventoryComponent medicines={medicines} batches={batches} />}
               {activeTab === 'expiry' && <ExpiryComponent alerts={alerts} />}
               {activeTab === 'purchases' && <PurchasesComponent purchases={purchases} />}
-              {activeTab === 'prescriptions' && <PrescriptionsComponent prescriptions={prescriptions} onDone={fetchData} notify={notify} currentRole={currentRole} />}
+              {activeTab === 'prescriptions' && (
+                <PrescriptionsComponent
+                  prescriptions={prescriptions}
+                  onDone={() => fetchAllData(token)}
+                  notify={notify}
+                  currentRole={currentRole}
+                  apiFetch={apiFetch}
+                />
+              )}
               {activeTab === 'customers' && <CustomersComponent customers={customers} />}
             </div>
           </main>
@@ -183,88 +306,127 @@
     }
 
     function DashboardComponent({ kpis, setActiveTab }) {
-      const s = kpis?.sales_kpis || { today_revenue: 48250, monthly_revenue: 742000, orders_today: 84, average_order_value: 575 };
-      const i = kpis?.inventory_kpis || { total_medicines: 1284, low_stock_count: 32, expiring_soon_30d: 18, expired_count: 7, total_active_batches: 142 };
+      const s = kpis?.sales_kpis || { today_revenue: 224.44, monthly_revenue: 224.44, orders_today: 1, average_order_value: 224.44 };
+      const i = kpis?.inventory_kpis || { total_medicines: 8, low_stock_count: 2, expiring_soon_30d: 2, expired_count: 1, total_active_batches: 11 };
 
       return (
         <div className="space-y-6 max-w-6xl mx-auto">
-          {/* KPIs */}
+          {/* Sales & Inventory KPIs */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-              <span className="text-xs text-slate-400">Today's Revenue</span>
-              <p className="text-2xl font-bold font-mono text-white mt-1">₹{s.today_revenue?.toLocaleString()}</p>
-              <span className="text-[10px] text-emerald-400 font-semibold">+14.2% vs yesterday</span>
+            <div className="bg-slate-900 border border-slate-800/80 rounded-2xl p-4 shadow-sm">
+              <span className="text-xs text-slate-400 font-medium">Today's Revenue</span>
+              <p className="text-2xl font-bold font-mono text-white mt-1">₹{Number(s.today_revenue || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+              <div className="flex items-center gap-1.5 mt-2 text-[10px] text-emerald-400 font-semibold">
+                <span>↑ +14.2%</span>
+                <span className="text-slate-500 font-normal">vs yesterday</span>
+              </div>
             </div>
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-              <span className="text-xs text-slate-400">Monthly Revenue</span>
-              <p className="text-2xl font-bold font-mono text-white mt-1">₹{s.monthly_revenue?.toLocaleString()}</p>
-              <span className="text-[10px] text-blue-400 font-semibold">Target 92%</span>
+
+            <div className="bg-slate-900 border border-slate-800/80 rounded-2xl p-4 shadow-sm">
+              <span className="text-xs text-slate-400 font-medium">Monthly Revenue</span>
+              <p className="text-2xl font-bold font-mono text-white mt-1">₹{Number(s.monthly_revenue || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+              <div className="flex items-center gap-1.5 mt-2 text-[10px] text-blue-400 font-semibold">
+                <span>🎯 Target 92%</span>
+                <span className="text-slate-500 font-normal">paced</span>
+              </div>
             </div>
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-              <span className="text-xs text-slate-400">Orders Today</span>
+
+            <div className="bg-slate-900 border border-slate-800/80 rounded-2xl p-4 shadow-sm">
+              <span className="text-xs text-slate-400 font-medium">Orders Today</span>
               <p className="text-2xl font-bold font-mono text-white mt-1">{s.orders_today}</p>
-              <span className="text-[10px] text-slate-500 font-mono">AOV: ₹{s.average_order_value}</span>
+              <div className="flex items-center gap-1.5 mt-2 text-[10px] text-slate-400 font-mono">
+                <span>AOV: ₹{Number(s.average_order_value || 0).toFixed(2)}</span>
+              </div>
             </div>
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-              <span className="text-xs text-slate-400">Total Medicines</span>
+
+            <div className="bg-slate-900 border border-slate-800/80 rounded-2xl p-4 shadow-sm">
+              <span className="text-xs text-slate-400 font-medium">Total Medicines</span>
               <p className="text-2xl font-bold font-mono text-white mt-1">{i.total_medicines}</p>
-              <span className="text-[10px] text-cyan-400 font-mono">{i.total_active_batches} batches</span>
+              <div className="flex items-center gap-1.5 mt-2 text-[10px] text-cyan-400 font-mono">
+                <span>{i.total_active_batches} active batches</span>
+              </div>
             </div>
           </div>
 
           {/* Quick Alert Counters */}
-          <div className="grid grid-cols-3 gap-4 text-xs">
-            <div onClick={() => setActiveTab('expiry')} className="bg-amber-950/20 border border-amber-800/40 p-4 rounded-xl cursor-pointer hover:border-amber-700">
-              <span className="text-amber-400 font-bold">⚠️ Low Stock Alerts: {i.low_stock_count}</span>
-              <p className="text-slate-400 text-[11px] mt-1">Medicines at or below reorder level</p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+            <div
+              onClick={() => setActiveTab('expiry')}
+              className="bg-amber-950/20 border border-amber-800/40 hover:border-amber-700/80 p-4 rounded-2xl cursor-pointer transition-all shadow-sm"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-amber-400 font-bold text-sm">⚠️ Low Stock Alert</span>
+                <span className="text-base font-mono font-black text-amber-300">{i.low_stock_count}</span>
+              </div>
+              <p className="text-slate-400 text-[11px] mt-1.5">Medicines at or below reorder threshold</p>
             </div>
-            <div onClick={() => setActiveTab('expiry')} className="bg-orange-950/20 border border-orange-800/40 p-4 rounded-xl cursor-pointer hover:border-orange-700">
-              <span className="text-orange-400 font-bold">🚨 Expiring &le; 30d: {i.expiring_soon_30d}</span>
-              <p className="text-slate-400 text-[11px] mt-1">Batches approaching expiry</p>
+
+            <div
+              onClick={() => setActiveTab('expiry')}
+              className="bg-orange-950/20 border border-orange-800/40 hover:border-orange-700/80 p-4 rounded-2xl cursor-pointer transition-all shadow-sm"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-orange-400 font-bold text-sm">🚨 Expiring &le; 30 Days</span>
+                <span className="text-base font-mono font-black text-orange-300">{i.expiring_soon_30d}</span>
+              </div>
+              <p className="text-slate-400 text-[11px] mt-1.5">Batches nearing shelf-life limit</p>
             </div>
-            <div onClick={() => setActiveTab('expiry')} className="bg-rose-950/20 border border-rose-800/40 p-4 rounded-xl cursor-pointer hover:border-rose-700">
-              <span className="text-rose-400 font-bold">🛑 Expired Stock: {i.expired_count}</span>
-              <p className="text-slate-400 text-[11px] mt-1">Quarantined from POS</p>
+
+            <div
+              onClick={() => setActiveTab('expiry')}
+              className="bg-rose-950/20 border border-rose-800/40 hover:border-rose-700/80 p-4 rounded-2xl cursor-pointer transition-all shadow-sm"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-rose-400 font-bold text-sm">🛑 Expired Stock</span>
+                <span className="text-base font-mono font-black text-rose-300">{i.expired_count}</span>
+              </div>
+              <p className="text-slate-400 text-[11px] mt-1.5">Quarantined automatically from POS sales</p>
             </div>
           </div>
 
-          {/* Top Medicines & Classification */}
+          {/* Top Dispensed & Shelf-Life Tiering */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-              <h4 className="text-xs font-bold text-white uppercase tracking-wider mb-3">Top Dispensed Medicines</h4>
-              <div className="space-y-2.5 text-xs">
+            <div className="bg-slate-900 border border-slate-800/80 rounded-2xl p-5">
+              <h4 className="text-xs font-bold text-white uppercase tracking-wider mb-3 flex items-center justify-between">
+                <span>Top Dispensed Medicines</span>
+                <span className="text-[10px] text-slate-500 font-normal">Last 30 Days</span>
+              </h4>
+              <div className="space-y-2 text-xs">
                 {[
                   { name: 'Paracetamol 500mg (Crocin)', units: 340, rev: '₹680' },
-                  { name: 'Amoxicillin 500mg (Mox)', units: 185, rev: '₹8,325' },
+                  { name: 'Amoxicillin 500mg (Mox 500)', units: 185, rev: '₹8,325' },
                   { name: 'Pantoprazole 40mg (Pan 40)', units: 145, rev: '₹1,160' },
                   { name: 'Limcee Vitamin C 500mg', units: 120, rev: '₹384' },
                 ].map((item, idx) => (
-                  <div key={idx} className="flex justify-between p-2 rounded bg-slate-950 border border-slate-850">
+                  <div key={idx} className="flex justify-between items-center p-2.5 rounded-xl bg-slate-950 border border-slate-800/60">
                     <span className="text-white font-medium">{item.name}</span>
-                    <span className="text-slate-400 font-mono">{item.units} units ({item.rev})</span>
+                    <span className="text-slate-400 font-mono text-[11px]">{item.units} units ({item.rev})</span>
                   </div>
                 ))}
               </div>
             </div>
 
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-              <h4 className="text-xs font-bold text-white uppercase tracking-wider mb-3">FEFO Batch Shelf-life Distribution</h4>
+            <div className="bg-slate-900 border border-slate-800/80 rounded-2xl p-5">
+              <h4 className="text-xs font-bold text-white uppercase tracking-wider mb-3 flex items-center justify-between">
+                <span>FEFO Shelf-Life Distribution</span>
+                <span className="text-[10px] text-cyan-400 font-mono">Automated Tiering</span>
+              </h4>
               <div className="space-y-2 text-xs">
-                <div className="flex justify-between p-2 rounded bg-emerald-950/20 border border-emerald-800/40">
+                <div className="flex justify-between p-2.5 rounded-xl bg-emerald-950/20 border border-emerald-800/40">
                   <span className="text-emerald-400 font-medium">Normal (&gt; 30 Days)</span>
-                  <span className="font-mono font-bold text-white">117 Batches</span>
+                  <span className="font-mono font-bold text-emerald-300">8 Batches</span>
                 </div>
-                <div className="flex justify-between p-2 rounded bg-amber-950/20 border border-amber-800/40">
+                <div className="flex justify-between p-2.5 rounded-xl bg-amber-950/20 border border-amber-800/40">
                   <span className="text-amber-400 font-medium">Warning (8-30 Days)</span>
-                  <span className="font-mono font-bold text-white">17 Batches</span>
+                  <span className="font-mono font-bold text-amber-300">2 Batches</span>
                 </div>
-                <div className="flex justify-between p-2 rounded bg-orange-950/20 border border-orange-800/40">
+                <div className="flex justify-between p-2.5 rounded-xl bg-orange-950/20 border border-orange-800/40">
                   <span className="text-orange-400 font-medium">Critical (&le; 7 Days)</span>
-                  <span className="font-mono font-bold text-white">5 Batches</span>
+                  <span className="font-mono font-bold text-orange-300">1 Batch</span>
                 </div>
-                <div className="flex justify-between p-2 rounded bg-rose-950/20 border border-rose-800/40">
-                  <span className="text-rose-400 font-medium">Expired</span>
-                  <span className="font-mono font-bold text-white">8 Batches</span>
+                <div className="flex justify-between p-2.5 rounded-xl bg-rose-950/20 border border-rose-800/40">
+                  <span className="text-rose-400 font-medium">Expired (Quarantined)</span>
+                  <span className="font-mono font-bold text-rose-300">1 Batch</span>
                 </div>
               </div>
             </div>
@@ -273,7 +435,7 @@
       );
     }
 
-    function POSComponent({ medicines, onDone, notify }) {
+    function POSComponent({ medicines, onDone, notify, apiFetch }) {
       const [search, setSearch] = useState('');
       const [cart, setCart] = useState([]);
       const [discount, setDiscount] = useState(0);
@@ -281,23 +443,53 @@
       const [walkinName, setWalkinName] = useState('');
       const [fefoData, setFefoData] = useState(null);
       const [invoice, setInvoice] = useState(null);
+      const [submitting, setSubmitting] = useState(false);
 
       const filtered = useMemo(() => {
-        if (!search) return medicines.slice(0, 10);
+        if (!search) return medicines.slice(0, 12);
         const q = search.toLowerCase();
-        return medicines.filter(m => m.name.toLowerCase().includes(q) || m.generic_name.toLowerCase().includes(q) || m.brand.toLowerCase().includes(q));
+        return medicines.filter(m =>
+          (m.name || '').toLowerCase().includes(q) ||
+          (m.generic_name || '').toLowerCase().includes(q) ||
+          (m.brand || '').toLowerCase().includes(q)
+        );
       }, [medicines, search]);
 
       const add = (med) => {
-        if (med.total_stock <= 0) { notify('Out of stock', 'error'); return; }
+        if ((med.total_stock || 0) <= 0) {
+          notify(`${med.name} is out of stock!`, 'error');
+          return;
+        }
         setCart(prev => {
           const ex = prev.find(i => i.med.id === med.id);
           if (ex) {
-            if (ex.qty + 1 > med.total_stock) { notify('Stock limit reached', 'error'); return prev; }
+            if (ex.qty + 1 > med.total_stock) {
+              notify(`Available stock limit (${med.total_stock}) reached`, 'error');
+              return prev;
+            }
             return prev.map(i => i.med.id === med.id ? { ...i, qty: i.qty + 1 } : i);
           }
-          return [...prev, { med, qty: 1, price: med.standard_selling_price || 2.0 }];
+          return [...prev, { med, qty: 1, price: Number(med.standard_selling_price || 2.0) }];
         });
+      };
+
+      const remove = (medId) => {
+        setCart(prev => prev.filter(i => i.med.id !== medId));
+      };
+
+      const updateQty = (medId, delta) => {
+        setCart(prev => prev.map(i => {
+          if (i.med.id === medId) {
+            const next = i.qty + delta;
+            if (next <= 0) return null;
+            if (next > i.med.total_stock) {
+              notify(`Stock limit (${i.med.total_stock}) reached`, 'error');
+              return i;
+            }
+            return { ...i, qty: next };
+          }
+          return i;
+        }).filter(Boolean));
       };
 
       const subtotal = cart.reduce((acc, i) => acc + (i.qty * i.price), 0);
@@ -305,67 +497,114 @@
       const taxAmt = (subtotal - discAmt) * (tax / 100);
       const total = subtotal - discAmt + taxAmt;
 
-      const simFefo = async (medId, qty) => {
-        const res = await fetch(${API_BASE}/inventory/fefo-preview/, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ medicine_id: medId, quantity: qty })
-        });
-        const data = await res.json();
-        if (res.ok) setFefoData(data);
-        else notify(data.error || 'Preview failed', 'error');
+      const simFefo = async (medId, qty = 5) => {
+        try {
+          const res = await apiFetch('/inventory/fefo-preview/', {
+            method: 'POST',
+            body: JSON.stringify({ medicine_id: medId, quantity: qty })
+          });
+          const data = await res.json();
+          if (res.ok) {
+            setFefoData(data);
+          } else {
+            notify(data.error || 'FEFO preview simulation failed', 'error');
+          }
+        } catch (e) {
+          notify('Server error during FEFO simulation', 'error');
+        }
       };
 
       const checkout = async () => {
         if (cart.length === 0) return;
-        const res = await fetch(${API_BASE}/sales/, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            customer_name_walkin: walkinName || 'Walk-in',
-            discount_percentage: discount,
-            tax_percentage: tax,
-            items: cart.map(i => ({ medicine_id: i.med.id, quantity: i.qty }))
-          })
-        });
-        const data = await res.json();
-        if (res.ok) {
-          notify(Invoice  created!);
-          setInvoice(data);
-          setCart([]);
-          onDone();
-        } else {
-          notify(JSON.stringify(data.stock_error || data), 'error');
+        setSubmitting(true);
+        try {
+          const res = await apiFetch('/sales/', {
+            method: 'POST',
+            body: JSON.stringify({
+              customer_name_walkin: walkinName.trim() || 'Walk-in Customer',
+              discount_percentage: Number(discount),
+              tax_percentage: Number(tax),
+              items: cart.map(i => ({ medicine_id: i.med.id, quantity: i.qty }))
+            })
+          });
+          const data = await res.json();
+          if (res.ok) {
+            notify(`Sale Completed! Invoice ${data.invoice_number} created.`);
+            setInvoice(data);
+            setCart([]);
+            setWalkinName('');
+            onDone();
+          } else {
+            const err = data.stock_error || data.detail || (data.items && JSON.stringify(data.items)) || JSON.stringify(data);
+            notify(`Checkout failed: ${err}`, 'error');
+          }
+        } catch (e) {
+          notify('Network failure during checkout', 'error');
+        } finally {
+          setSubmitting(false);
         }
       };
 
       return (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 max-w-6xl mx-auto">
-          {/* Catalog */}
+          {/* Catalog Panel */}
           <div className="lg:col-span-7 space-y-4">
-            <input
-              type="text"
-              placeholder="Search medicine (e.g. Paracetamol, Mox, Crocin)..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white"
-            />
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[500px] overflow-y-auto">
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Search medicine by name, generic, or brand..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+              />
+              {search && (
+                <button
+                  onClick={() => setSearch('')}
+                  className="absolute right-3 top-3 text-xs text-slate-500 hover:text-slate-300"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[520px] overflow-y-auto pr-1">
               {filtered.map(med => (
-                <div key={med.id} className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col justify-between text-xs">
+                <div key={med.id} className="bg-slate-900 border border-slate-800/80 rounded-2xl p-4 flex flex-col justify-between text-xs hover:border-slate-700 transition-all">
                   <div>
-                    <div className="flex justify-between font-bold text-white">
-                      <span>{med.name}</span>
-                      {med.prescription_required && <span className="text-[10px] bg-purple-500/20 text-purple-400 px-1 rounded">Rx</span>}
+                    <div className="flex justify-between items-start font-bold text-white">
+                      <span className="text-sm leading-tight">{med.name}</span>
+                      {med.prescription_required && (
+                        <span className="text-[10px] bg-purple-500/20 text-purple-400 px-1.5 py-0.5 rounded font-mono font-semibold shrink-0 ml-1">
+                          Rx
+                        </span>
+                      )}
                     </div>
-                    <p className="text-[11px] text-slate-400 mt-0.5">{med.generic_name}</p>
-                    <div className="mt-2 text-[10px] font-mono text-emerald-400">Stock: {med.total_stock}</div>
+                    <p className="text-[11px] text-slate-400 mt-1 truncate">{med.generic_name} • {med.dosage_form}</p>
+                    <div className="mt-2.5 flex items-center justify-between text-[11px]">
+                      <span className="text-slate-500">Available:</span>
+                      <span className={`font-mono font-bold ${(med.total_stock || 0) > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {med.total_stock || 0} units
+                      </span>
+                    </div>
                   </div>
-                  <div className="mt-3 pt-2 border-t border-slate-800 flex justify-between items-center">
-                    <span className="font-bold text-white font-mono">₹{med.standard_selling_price || 2.0}</span>
-                    <div className="flex gap-1">
-                      <button onClick={() => simFefo(med.id, 5)} className="px-2 py-1 bg-slate-800 text-slate-300 rounded text-[10px]">FEFO</button>
-                      <button onClick={() => add(med)} className="px-2.5 py-1 bg-blue-600 text-white rounded text-[10px] font-bold">+ Add</button>
+
+                  <div className="mt-3 pt-3 border-t border-slate-800/80 flex justify-between items-center">
+                    <span className="font-bold text-white font-mono text-sm">₹{Number(med.standard_selling_price || 2.0).toFixed(2)}</span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => simFefo(med.id, 5)}
+                        title="Preview FEFO batch deduction sequence"
+                        className="px-2 py-1 bg-slate-800 hover:bg-slate-700 active:bg-slate-650 text-cyan-300 rounded-lg text-[10px] font-mono border border-slate-700 transition-colors"
+                      >
+                        FEFO ⛶
+                      </button>
+                      <button
+                        onClick={() => add(med)}
+                        disabled={(med.total_stock || 0) <= 0}
+                        className="px-3 py-1 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:bg-slate-800 disabled:text-slate-600 text-white rounded-lg text-[11px] font-bold shadow-md shadow-blue-600/20 transition-all"
+                      >
+                        + Add
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -374,85 +613,209 @@
           </div>
 
           {/* Cart Panel */}
-          <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between text-xs">
+          <div className="lg:col-span-5 bg-slate-900 border border-slate-800/80 rounded-2xl p-5 flex flex-col justify-between text-xs">
             <div>
-              <div className="flex justify-between pb-2 border-b border-slate-800 font-bold text-white">
-                <span>POS Cart</span>
-                <span>{cart.length} items</span>
+              <div className="flex justify-between items-center pb-3 border-b border-slate-800 font-bold text-white">
+                <span className="text-sm flex items-center gap-2">
+                  <span>🛒</span> POS Cart
+                </span>
+                <span className="font-mono text-xs bg-slate-800 px-2 py-0.5 rounded-full text-slate-300">
+                  {cart.length} items
+                </span>
               </div>
-              <input
-                type="text"
-                placeholder="Customer Name..."
-                value={walkinName}
-                onChange={e => setWalkinName(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded p-1.5 my-2 text-white"
-              />
-              <div className="space-y-2 max-h-48 overflow-y-auto my-2">
-                {cart.map(item => (
-                  <div key={item.med.id} className="flex justify-between items-center p-2 bg-slate-950 rounded">
-                    <div>
-                      <p className="font-medium text-white">{item.med.name}</p>
-                      <span className="text-[10px] text-slate-400 font-mono">₹{item.price} each</span>
-                    </div>
-                    <span className="font-mono font-bold text-white">Qty: {item.qty} = ₹{(item.qty * item.price).toFixed(2)}</span>
+
+              <div className="mt-3">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Customer</label>
+                <input
+                  type="text"
+                  placeholder="Walk-in Customer Name..."
+                  value={walkinName}
+                  onChange={e => setWalkinName(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              {/* Items List */}
+              <div className="space-y-2 max-h-48 overflow-y-auto my-3 pr-1">
+                {cart.length === 0 ? (
+                  <div className="p-8 text-center text-slate-500 border border-dashed border-slate-800 rounded-xl">
+                    Cart is empty. Select medicines from the catalog to dispense.
                   </div>
-                ))}
+                ) : (
+                  cart.map(item => (
+                    <div key={item.med.id} className="flex justify-between items-center p-2.5 bg-slate-950 rounded-xl border border-slate-800/60">
+                      <div>
+                        <p className="font-semibold text-white truncate max-w-[150px]">{item.med.name}</p>
+                        <span className="text-[10px] text-slate-400 font-mono">₹{item.price.toFixed(2)} each</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+                          <button
+                            onClick={() => updateQty(item.med.id, -1)}
+                            className="px-2 py-0.5 text-slate-400 hover:text-white hover:bg-slate-800"
+                          >
+                            -
+                          </button>
+                          <span className="px-2 font-mono font-bold text-white">{item.qty}</span>
+                          <button
+                            onClick={() => updateQty(item.med.id, 1)}
+                            className="px-2 py-0.5 text-slate-400 hover:text-white hover:bg-slate-800"
+                          >
+                            +
+                          </button>
+                        </div>
+                        <span className="font-mono font-bold text-white text-[11px] min-w-[50px] text-right">
+                          ₹{(item.qty * item.price).toFixed(2)}
+                        </span>
+                        <button
+                          onClick={() => remove(item.med.id)}
+                          className="text-slate-600 hover:text-rose-400 text-xs pl-1"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
 
-            <div className="pt-3 border-t border-slate-800 space-y-1.5 text-slate-400">
-              <div className="flex justify-between"><span>Subtotal:</span><span className="font-mono text-white">₹{subtotal.toFixed(2)}</span></div>
-              <div className="flex justify-between"><span>Discount ({discount}%):</span><span className="font-mono text-rose-400">-₹{discAmt.toFixed(2)}</span></div>
-              <div className="flex justify-between"><span>Tax ({tax}%):</span><span className="font-mono text-white">+₹{taxAmt.toFixed(2)}</span></div>
-              <div className="flex justify-between text-sm font-bold text-white pt-1 border-t border-slate-800">
-                <span>Total:</span>
+            {/* Calculations & Checkout */}
+            <div className="pt-3 border-t border-slate-800/80 space-y-2 text-slate-400">
+              <div className="grid grid-cols-2 gap-2 pb-1">
+                <div>
+                  <label className="text-[10px] text-slate-500 block mb-1">Discount (%)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={discount}
+                    onChange={e => setDiscount(Math.max(0, Number(e.target.value)))}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-1.5 text-xs text-white font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-slate-500 block mb-1">GST / Tax (%)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={tax}
+                    onChange={e => setTax(Math.max(0, Number(e.target.value)))}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-1.5 text-xs text-white font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-between text-xs">
+                <span>Subtotal:</span>
+                <span className="font-mono text-white">₹{subtotal.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span>Discount ({discount}%):</span>
+                <span className="font-mono text-rose-400">-₹{discAmt.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span>Tax ({tax}%):</span>
+                <span className="font-mono text-white">+₹{taxAmt.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between text-base font-bold text-white pt-2 border-t border-slate-800">
+                <span>Total Payable:</span>
                 <span className="text-emerald-400 font-mono">₹{total.toFixed(2)}</span>
               </div>
+
               <button
                 onClick={checkout}
-                disabled={cart.length === 0}
-                className="w-full py-2.5 mt-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 text-white font-bold rounded-lg"
+                disabled={cart.length === 0 || submitting}
+                className="w-full py-3 mt-2 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 disabled:bg-slate-800 disabled:text-slate-600 text-white font-bold rounded-xl shadow-lg shadow-emerald-600/20 transition-all flex items-center justify-center gap-2 text-sm"
               >
-                Checkout & Generate Invoice
+                <span>{submitting ? 'Executing FEFO Transaction...' : 'Checkout & Print Invoice'}</span>
+                <span>⚡</span>
               </button>
             </div>
           </div>
 
-          {/* FEFO Modal */}
+          {/* FEFO Sequence Modal */}
           {fefoData && (
-            <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
-              <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 max-w-md w-full space-y-3 text-xs">
-                <div className="flex justify-between font-bold text-white text-sm">
-                  <span>FEFO Batch Sequence Preview</span>
-                  <button onClick={() => setFefoData(null)}>✕</button>
+            <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-md w-full space-y-4 text-xs shadow-2xl">
+                <div className="flex justify-between items-center font-bold text-white text-sm border-b border-slate-800 pb-3">
+                  <span className="flex items-center gap-2">
+                    <span>🧬</span> FEFO Batch Sequence Preview
+                  </span>
+                  <button onClick={() => setFefoData(null)} className="text-slate-400 hover:text-white text-base">✕</button>
                 </div>
-                <p className="text-slate-400">Medicine: <span className="text-white font-bold">{fefoData.medicine_name}</span> (Qty: {fefoData.requested_quantity})</p>
-                <div className="space-y-1.5">
-                  {fefoData.allocations.map((a, i) => (
-                    <div key={i} className="p-2 bg-slate-950 rounded flex justify-between font-mono">
-                      <span>Batch {a.batch_number} (Exp: {a.expiry_date})</span>
-                      <span className="text-cyan-400 font-bold">{a.quantity} units</span>
+                <div className="text-slate-300">
+                  <p>Target Medicine: <span className="text-white font-bold">{fefoData.medicine_name}</span></p>
+                  <p className="text-slate-400 mt-0.5">Requested Units: <span className="font-mono text-cyan-400 font-bold">{fefoData.requested_quantity}</span></p>
+                </div>
+
+                <div className="space-y-2">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Earliest Expiry Deduction Order:</span>
+                  {(fefoData.allocations || []).map((a, i) => (
+                    <div key={i} className="p-3 bg-slate-950 rounded-xl flex justify-between items-center border border-slate-800/80 font-mono">
+                      <div>
+                        <p className="font-bold text-white">Batch: {a.batch_number}</p>
+                        <span className="text-[10px] text-slate-400">Expires: {a.expiry_date}</span>
+                      </div>
+                      <span className="text-cyan-400 font-bold text-sm bg-cyan-950/60 px-2.5 py-1 rounded-lg border border-cyan-800/40">
+                        {a.quantity} units
+                      </span>
                     </div>
                   ))}
                 </div>
-                <button onClick={() => setFefoData(null)} className="w-full py-1.5 bg-blue-600 text-white rounded font-bold">Close</button>
+
+                <button
+                  onClick={() => setFefoData(null)}
+                  className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold transition-colors"
+                >
+                  Understood
+                </button>
               </div>
             </div>
           )}
 
           {/* Invoice Modal */}
           {invoice && (
-            <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
-              <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 max-w-md w-full space-y-3 text-xs">
-                <div className="flex justify-between font-bold text-white text-sm">
-                  <span>Invoice: {invoice.invoice_number}</span>
-                  <button onClick={() => setInvoice(null)}>✕</button>
+            <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-md w-full space-y-4 text-xs shadow-2xl">
+                <div className="flex justify-between items-center font-bold text-white text-sm border-b border-slate-800 pb-3">
+                  <span className="flex items-center gap-2">
+                    <span>🧾</span> Tax Invoice: {invoice.invoice_number}
+                  </span>
+                  <button onClick={() => setInvoice(null)} className="text-slate-400 hover:text-white text-base">✕</button>
                 </div>
-                <div className="bg-slate-950 p-2.5 rounded space-y-1">
-                  <div className="flex justify-between text-slate-400"><span>Customer:</span><span className="text-white">{invoice.customer_name}</span></div>
-                  <div className="flex justify-between text-slate-400"><span>Total Paid:</span><span className="text-emerald-400 font-bold font-mono">₹{invoice.total_amount}</span></div>
+
+                <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800/80 space-y-2">
+                  <div className="flex justify-between text-slate-400">
+                    <span>Customer:</span>
+                    <span className="text-white font-medium">{invoice.customer_name || 'Walk-in'}</span>
+                  </div>
+                  <div className="flex justify-between text-slate-400">
+                    <span>Payment Status:</span>
+                    <span className="text-emerald-400 font-bold uppercase font-mono text-[11px]">{invoice.payment_status || 'PAID'}</span>
+                  </div>
+                  <div className="flex justify-between text-slate-400 pt-2 border-t border-slate-800 text-sm font-bold">
+                    <span>Total Paid:</span>
+                    <span className="text-emerald-400 font-mono">₹{Number(invoice.total_amount || 0).toFixed(2)}</span>
+                  </div>
                 </div>
-                <button onClick={() => setInvoice(null)} className="w-full py-1.5 bg-blue-600 text-white rounded font-bold">Done</button>
+
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">FEFO Deductions:</span>
+                  {(invoice.items || []).map((it, idx) => (
+                    <div key={idx} className="p-2 bg-slate-950/70 rounded-lg flex justify-between text-[11px] font-mono text-slate-300">
+                      <span>{it.medicine_name || it.medicine} (FEFO Allocated)</span>
+                      <span>Qty: {it.quantity}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <button
+                  onClick={() => setInvoice(null)}
+                  className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold transition-colors"
+                >
+                  Close & Continue
+                </button>
               </div>
             </div>
           )}
@@ -461,39 +824,80 @@
     }
 
     function InventoryComponent({ medicines, batches }) {
+      const [filter, setFilter] = useState('');
+      const filteredBatches = useMemo(() => {
+        if (!filter) return batches;
+        const q = filter.toLowerCase();
+        return batches.filter(b =>
+          (b.batch_number || '').toLowerCase().includes(q) ||
+          (b.medicine_name || '').toLowerCase().includes(q)
+        );
+      }, [batches, filter]);
+
+      const getBadgeClass = (status) => {
+        switch (status) {
+          case 'CRITICAL': return 'bg-orange-500/20 text-orange-400 border border-orange-500/30';
+          case 'WARNING': return 'bg-amber-500/20 text-amber-400 border border-amber-500/30';
+          case 'EXPIRED': return 'bg-rose-500/20 text-rose-400 border border-rose-500/30';
+          default: return 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30';
+        }
+      };
+
       return (
         <div className="space-y-4 max-w-6xl mx-auto text-xs">
-          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
-            <div className="p-4 border-b border-slate-800 font-bold text-white text-sm">
-              Batches & FEFO Traceability ({batches.length} Batches)
+          <div className="flex justify-between items-center">
+            <input
+              type="text"
+              placeholder="Filter batches by batch number or medicine name..."
+              value={filter}
+              onChange={e => setFilter(e.target.value)}
+              className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 w-80"
+            />
+            <span className="text-slate-400 font-mono text-xs">
+              Showing {filteredBatches.length} of {batches.length} batches
+            </span>
+          </div>
+
+          <div className="bg-slate-900 border border-slate-800/80 rounded-2xl overflow-hidden shadow-sm">
+            <div className="p-4 border-b border-slate-800 font-bold text-white text-sm flex items-center justify-between">
+              <span>Batches & FEFO Traceability</span>
+              <span className="text-[11px] text-slate-400 font-normal">Sorted by Expiry Date (Earliest First)</span>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left">
-                <thead className="bg-slate-950 text-slate-400 border-b border-slate-800">
+                <thead className="bg-slate-950 text-slate-400 border-b border-slate-800 text-[11px]">
                   <tr>
-                    <th className="p-3">Batch #</th>
-                    <th className="p-3">Medicine</th>
-                    <th className="p-3">Expiry</th>
-                    <th className="p-3">Status</th>
-                    <th className="p-3">Stock</th>
-                    <th className="p-3">Selling Price</th>
+                    <th className="p-3.5">Batch #</th>
+                    <th className="p-3.5">Medicine</th>
+                    <th className="p-3.5">Expiry Date</th>
+                    <th className="p-3.5">Expiry Status</th>
+                    <th className="p-3.5">Stock Units</th>
+                    <th className="p-3.5">Purchase</th>
+                    <th className="p-3.5">Selling</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800">
-                  {batches.map(b => (
-                    <tr key={b.id} className="hover:bg-slate-800/50">
-                      <td className="p-3 font-mono font-bold text-white">{b.batch_number}</td>
-                      <td className="p-3 text-slate-200">{b.medicine_name}</td>
-                      <td className="p-3 font-mono">{b.expiry_date}</td>
-                      <td className="p-3">
-                        <span className={px-2 py-0.5 rounded text-[10px] font-bold }>
-                          {b.expiry_status}
-                        </span>
-                      </td>
-                      <td className="p-3 font-mono font-bold text-cyan-400">{b.quantity}</td>
-                      <td className="p-3 font-mono text-white">₹{b.selling_price}</td>
+                <tbody className="divide-y divide-slate-800/60">
+                  {filteredBatches.length === 0 ? (
+                    <tr>
+                      <td colSpan="7" className="p-6 text-center text-slate-500">No matching batches found</td>
                     </tr>
-                  ))}
+                  ) : (
+                    filteredBatches.map(b => (
+                      <tr key={b.id} className="hover:bg-slate-800/40 transition-colors">
+                        <td className="p-3.5 font-mono font-bold text-white">{b.batch_number}</td>
+                        <td className="p-3.5 text-slate-200 font-medium">{b.medicine_name}</td>
+                        <td className="p-3.5 font-mono text-slate-400">{b.expiry_date}</td>
+                        <td className="p-3.5">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase font-mono ${getBadgeClass(b.expiry_status)}`}>
+                            {b.expiry_status}
+                          </span>
+                        </td>
+                        <td className="p-3.5 font-mono font-bold text-cyan-400">{b.quantity}</td>
+                        <td className="p-3.5 font-mono text-slate-400">₹{b.purchase_price}</td>
+                        <td className="p-3.5 font-mono text-white font-bold">₹{b.selling_price}</td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -509,52 +913,101 @@
       return (
         <div className="space-y-6 max-w-6xl mx-auto text-xs">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-slate-900 border border-orange-900/50 p-4 rounded-xl space-y-2">
-              <span className="font-bold text-orange-400 text-sm">Critical (&le; 7 Days): {exp.critical_batches?.length || 0}</span>
-              <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                {exp.critical_batches?.map(b => (
-                  <div key={b.id} className="p-2 bg-slate-950 rounded flex justify-between">
-                    <div><p className="text-white font-bold">{b.medicine_name}</p><span className="text-[10px] text-slate-400">{b.batch_number}</span></div>
-                    <span className="text-orange-400 font-mono font-bold">{b.days_left}d left</span>
-                  </div>
-                ))}
+            <div className="bg-slate-900 border border-orange-900/50 p-4 rounded-2xl space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="font-bold text-orange-400 text-sm">Critical (&le; 7 Days)</span>
+                <span className="font-mono font-bold bg-orange-950 text-orange-400 px-2 py-0.5 rounded-full text-xs">
+                  {exp.critical_batches?.length || 0}
+                </span>
+              </div>
+              <div className="space-y-2 max-h-52 overflow-y-auto pr-1 pt-1">
+                {exp.critical_batches?.length === 0 ? (
+                  <p className="text-slate-500 py-3 text-center">No critical batches</p>
+                ) : (
+                  exp.critical_batches?.map(b => (
+                    <div key={b.id} className="p-2.5 bg-slate-950 rounded-xl flex justify-between items-center border border-orange-900/30">
+                      <div>
+                        <p className="text-white font-bold">{b.medicine_name}</p>
+                        <span className="text-[10px] text-slate-400 font-mono">Batch: {b.batch_number}</span>
+                      </div>
+                      <span className="text-orange-400 font-mono font-bold text-xs">{b.days_left}d left</span>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
 
-            <div className="bg-slate-900 border border-amber-900/50 p-4 rounded-xl space-y-2">
-              <span className="font-bold text-amber-400 text-sm">Warning (8-30 Days): {exp.warning_batches?.length || 0}</span>
-              <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                {exp.warning_batches?.map(b => (
-                  <div key={b.id} className="p-2 bg-slate-950 rounded flex justify-between">
-                    <div><p className="text-white font-bold">{b.medicine_name}</p><span className="text-[10px] text-slate-400">{b.batch_number}</span></div>
-                    <span className="text-amber-400 font-mono font-bold">{b.days_left}d left</span>
-                  </div>
-                ))}
+            <div className="bg-slate-900 border border-amber-900/50 p-4 rounded-2xl space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="font-bold text-amber-400 text-sm">Warning (8-30 Days)</span>
+                <span className="font-mono font-bold bg-amber-950 text-amber-400 px-2 py-0.5 rounded-full text-xs">
+                  {exp.warning_batches?.length || 0}
+                </span>
+              </div>
+              <div className="space-y-2 max-h-52 overflow-y-auto pr-1 pt-1">
+                {exp.warning_batches?.length === 0 ? (
+                  <p className="text-slate-500 py-3 text-center">No warning batches</p>
+                ) : (
+                  exp.warning_batches?.map(b => (
+                    <div key={b.id} className="p-2.5 bg-slate-950 rounded-xl flex justify-between items-center border border-amber-900/30">
+                      <div>
+                        <p className="text-white font-bold">{b.medicine_name}</p>
+                        <span className="text-[10px] text-slate-400 font-mono">Batch: {b.batch_number}</span>
+                      </div>
+                      <span className="text-amber-400 font-mono font-bold text-xs">{b.days_left}d left</span>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
 
-            <div className="bg-slate-900 border border-rose-900/50 p-4 rounded-xl space-y-2">
-              <span className="font-bold text-rose-400 text-sm">Expired (Quarantine): {exp.expired_batches?.length || 0}</span>
-              <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                {exp.expired_batches?.map(b => (
-                  <div key={b.id} className="p-2 bg-slate-950 rounded flex justify-between">
-                    <div><p className="text-white font-bold">{b.medicine_name}</p><span className="text-[10px] text-slate-400">{b.batch_number}</span></div>
-                    <span className="text-rose-400 font-mono font-bold">Expired</span>
-                  </div>
-                ))}
+            <div className="bg-slate-900 border border-rose-900/50 p-4 rounded-2xl space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="font-bold text-rose-400 text-sm">Expired (Quarantined)</span>
+                <span className="font-mono font-bold bg-rose-950 text-rose-400 px-2 py-0.5 rounded-full text-xs">
+                  {exp.expired_batches?.length || 0}
+                </span>
+              </div>
+              <div className="space-y-2 max-h-52 overflow-y-auto pr-1 pt-1">
+                {exp.expired_batches?.length === 0 ? (
+                  <p className="text-slate-500 py-3 text-center">No expired batches</p>
+                ) : (
+                  exp.expired_batches?.map(b => (
+                    <div key={b.id} className="p-2.5 bg-slate-950 rounded-xl flex justify-between items-center border border-rose-900/30">
+                      <div>
+                        <p className="text-white font-bold">{b.medicine_name}</p>
+                        <span className="text-[10px] text-slate-400 font-mono">Batch: {b.batch_number}</span>
+                      </div>
+                      <span className="text-rose-400 font-mono font-bold text-xs">Expired</span>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
-            <h4 className="font-bold text-white text-sm mb-3">Low Stock Threshold Warnings</h4>
+          {/* Low Stock Alerts */}
+          <div className="bg-slate-900 border border-slate-800/80 p-5 rounded-2xl">
+            <h4 className="font-bold text-white text-sm mb-3 flex items-center justify-between">
+              <span>Low Stock Alerts (Current &le; Reorder Level)</span>
+              <span className="text-xs font-mono text-rose-400 font-bold">{low.length} triggers</span>
+            </h4>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {low.map(item => (
-                <div key={item.id} className="p-3 bg-slate-950 rounded flex justify-between items-center border border-slate-800">
-                  <div><p className="font-bold text-white">{item.name}</p><span className="text-[10px] text-slate-500">Reorder at: {item.reorder_level}</span></div>
-                  <span className="font-mono font-bold text-rose-400">{item.current_stock} left</span>
-                </div>
-              ))}
+              {low.length === 0 ? (
+                <p className="text-slate-500 py-4 col-span-3 text-center">All medicine stocks are healthy</p>
+              ) : (
+                low.map(item => (
+                  <div key={item.id} className="p-3.5 bg-slate-950 rounded-xl flex justify-between items-center border border-slate-800/80">
+                    <div>
+                      <p className="font-bold text-white">{item.name}</p>
+                      <span className="text-[10px] text-slate-500 font-mono">Reorder Level: {item.reorder_level}</span>
+                    </div>
+                    <span className="font-mono font-bold text-rose-400 bg-rose-950/60 px-2 py-1 rounded-lg text-xs">
+                      {item.current_stock} left
+                    </span>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
@@ -563,55 +1016,147 @@
 
     function PurchasesComponent({ purchases }) {
       return (
-        <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden max-w-6xl mx-auto text-xs">
-          <div className="p-4 border-b border-slate-800 font-bold text-white text-sm">Purchase Orders</div>
+        <div className="bg-slate-900 border border-slate-800/80 rounded-2xl overflow-hidden max-w-6xl mx-auto text-xs shadow-sm">
+          <div className="p-4 border-b border-slate-800 font-bold text-white text-sm flex items-center justify-between">
+            <span>Supplier Purchase Orders & Stock Intake</span>
+            <span className="text-xs text-slate-400 font-mono">{purchases.length} Records</span>
+          </div>
           <table className="w-full text-left">
-            <thead className="bg-slate-950 text-slate-400 border-b border-slate-800">
-              <tr><th className="p-3">PO #</th><th className="p-3">Supplier</th><th className="p-3">Status</th><th className="p-3">Amount</th></tr>
+            <thead className="bg-slate-950 text-slate-400 border-b border-slate-800 text-[11px]">
+              <tr>
+                <th className="p-3.5">PO Number</th>
+                <th className="p-3.5">Supplier</th>
+                <th className="p-3.5">Order Status</th>
+                <th className="p-3.5">Order Date</th>
+                <th className="p-3.5">Total Amount</th>
+              </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800">
-              {purchases.map(p => (
-                <tr key={p.id}>
-                  <td className="p-3 font-mono font-bold text-white">{p.po_number}</td>
-                  <td className="p-3 text-slate-200">{p.supplier_name}</td>
-                  <td className="p-3"><span className="px-2 py-0.5 rounded text-[10px] bg-blue-500/20 text-blue-400">{p.status}</span></td>
-                  <td className="p-3 font-mono text-white">₹{p.total_amount}</td>
+            <tbody className="divide-y divide-slate-800/60">
+              {purchases.length === 0 ? (
+                <tr>
+                  <td colSpan="5" className="p-6 text-center text-slate-500">No purchase orders recorded</td>
                 </tr>
-              ))}
+              ) : (
+                purchases.map(p => (
+                  <tr key={p.id} className="hover:bg-slate-800/40 transition-colors">
+                    <td className="p-3.5 font-mono font-bold text-white">{p.po_number}</td>
+                    <td className="p-3.5 text-slate-200 font-medium">{p.supplier_name || 'Apex Pharma Labs'}</td>
+                    <td className="p-3.5">
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold font-mono bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                        {p.status}
+                      </span>
+                    </td>
+                    <td className="p-3.5 font-mono text-slate-400">{p.created_at ? p.created_at.slice(0, 10) : '2026-10-06'}</td>
+                    <td className="p-3.5 font-mono text-white font-bold">₹{Number(p.total_amount || 0).toLocaleString()}</td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
       );
     }
 
-    function PrescriptionsComponent({ prescriptions, onDone, notify, currentRole }) {
+    function PrescriptionsComponent({ prescriptions, onDone, notify, currentRole, apiFetch }) {
       const act = async (id, action) => {
-        const res = await fetch(${API_BASE}/prescriptions//verify/, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action })
-        });
-        if (res.ok) { notify(Prescription !); onDone(); }
+        try {
+          const res = await apiFetch(`/prescriptions/${id}/verify/`, {
+            method: 'POST',
+            body: JSON.stringify({ action })
+          });
+          const data = await res.json();
+          if (res.ok) {
+            notify(`Prescription status updated to: ${data.status}`);
+            onDone();
+          } else {
+            notify(data.error || data.detail || 'Prescription action failed', 'error');
+          }
+        } catch (e) {
+          notify('Server communication error', 'error');
+        }
+      };
+
+      const dispense = async (id) => {
+        try {
+          const res = await apiFetch(`/prescriptions/${id}/dispense/`, {
+            method: 'POST'
+          });
+          const data = await res.json();
+          if (res.ok) {
+            notify(`Prescription marked as DISPENSED!`);
+            onDone();
+          } else {
+            notify(data.error || data.detail || 'Dispense failed', 'error');
+          }
+        } catch (e) {
+          notify('Server communication error', 'error');
+        }
+      };
+
+      const getStatusClass = (status) => {
+        switch (status) {
+          case 'APPROVED': return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
+          case 'DISPENSED': return 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30';
+          case 'REJECTED': return 'bg-rose-500/20 text-rose-400 border-rose-500/30';
+          default: return 'bg-amber-500/20 text-amber-400 border-amber-500/30';
+        }
       };
 
       return (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-6xl mx-auto text-xs">
-          {prescriptions.map(rx => (
-            <div key={rx.id} className="bg-slate-900 border border-slate-800 p-4 rounded-xl space-y-3">
-              <div className="flex justify-between font-bold">
-                <span className="text-white font-mono">{rx.prescription_number}</span>
-                <span className={px-2 py-0.5 rounded text-[10px] }>{rx.status}</span>
+        <div className="space-y-4 max-w-6xl mx-auto text-xs">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {prescriptions.length === 0 ? (
+              <div className="p-8 text-center text-slate-500 col-span-2 bg-slate-900 rounded-2xl border border-slate-800">
+                No prescription records found
               </div>
-              <p className="text-slate-400">Doctor: <span className="text-white">{rx.doctor_name}</span> | Patient: <span className="text-white">{rx.customer_name}</span></p>
-              <div className="bg-slate-950 p-2.5 rounded text-slate-300">{rx.notes || 'Routine prescription'}</div>
-              {['ADMIN', 'PHARMACIST'].includes(currentRole) && rx.status === 'PENDING' && (
-                <div className="flex gap-2">
-                  <button onClick={() => act(rx.id, 'APPROVE')} className="flex-1 py-1.5 bg-emerald-600 text-white font-bold rounded">Approve</button>
-                  <button onClick={() => act(rx.id, 'REJECT')} className="px-3 py-1.5 bg-rose-600 text-white font-bold rounded">Reject</button>
+            ) : (
+              prescriptions.map(rx => (
+                <div key={rx.id} className="bg-slate-900 border border-slate-800/80 p-5 rounded-2xl space-y-3 shadow-sm">
+                  <div className="flex justify-between items-center font-bold">
+                    <span className="text-white font-mono text-sm">{rx.prescription_number}</span>
+                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold border ${getStatusClass(rx.status)}`}>
+                      {rx.status}
+                    </span>
+                  </div>
+                  <div className="text-slate-400 space-y-0.5">
+                    <p>Doctor: <span className="text-white font-medium">{rx.doctor_name}</span></p>
+                    <p>Patient: <span className="text-white font-medium">{rx.customer_name || 'Walk-in Patient'}</span></p>
+                  </div>
+                  <div className="bg-slate-950 p-3 rounded-xl text-slate-300 border border-slate-800/60 font-mono text-[11px]">
+                    {rx.notes || 'Routine prescription'}
+                  </div>
+
+                  {['ADMIN', 'PHARMACIST'].includes(currentRole) && rx.status === 'PENDING' && (
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        onClick={() => act(rx.id, 'APPROVE')}
+                        className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition-colors shadow-sm"
+                      >
+                        Approve Rx
+                      </button>
+                      <button
+                        onClick={() => act(rx.id, 'REJECT')}
+                        className="px-4 py-2 bg-rose-600/80 hover:bg-rose-600 text-white font-bold rounded-xl transition-colors"
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  )}
+
+                  {['ADMIN', 'PHARMACIST'].includes(currentRole) && rx.status === 'APPROVED' && (
+                    <div className="pt-1">
+                      <button
+                        onClick={() => dispense(rx.id)}
+                        className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition-colors shadow-sm"
+                      >
+                        Dispense Medicine
+                      </button>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          ))}
+              ))
+            )}
+          </div>
         </div>
       );
     }
@@ -619,19 +1164,25 @@
     function CustomersComponent({ customers }) {
       return (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-6xl mx-auto text-xs">
-          {customers.map(c => (
-            <div key={c.id} className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex justify-between items-center">
-              <div>
-                <h4 className="font-bold text-white text-sm">{c.name}</h4>
-                <p className="text-slate-400 font-mono mt-0.5">{c.phone}</p>
-                <p className="text-slate-500 text-[11px] mt-1">{c.address || 'Registered Profile'}</p>
-              </div>
-              <div className="text-right">
-                <span className="text-slate-400">Total Spend</span>
-                <p className="text-emerald-400 font-mono font-bold text-sm">₹{c.total_spend || 0}</p>
-              </div>
+          {customers.length === 0 ? (
+            <div className="p-8 text-center text-slate-500 col-span-2 bg-slate-900 rounded-2xl border border-slate-800">
+              No registered customer profiles found
             </div>
-          ))}
+          ) : (
+            customers.map(c => (
+              <div key={c.id} className="bg-slate-900 border border-slate-800/80 p-5 rounded-2xl flex justify-between items-center shadow-sm">
+                <div>
+                  <h4 className="font-bold text-white text-sm">{c.name}</h4>
+                  <p className="text-slate-400 font-mono mt-1 text-[11px]">📞 {c.phone}</p>
+                  <p className="text-slate-500 text-[11px] mt-0.5">📍 {c.address || 'Registered Customer'}</p>
+                </div>
+                <div className="text-right">
+                  <span className="text-slate-400 text-[11px]">Lifetime Spend</span>
+                  <p className="text-emerald-400 font-mono font-bold text-base mt-0.5">₹{Number(c.total_spend || 0).toLocaleString()}</p>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       );
     }
