@@ -16,38 +16,47 @@ MediStock is an enterprise-grade medical store and pharmacy operations platform 
 ## 🏛️ System Architecture
 
 ```mermaid
-flowchart TD
-    subgraph Frontend ["Frontend Layer (React.js / SPA)"]
+graph TD
+    subgraph Frontend["Frontend Layer (React.js SPA)"]
         UI["React 18 SPA (Tailwind CSS)"]
         POS_UI["Point-of-Sale Terminal"]
-        EXP_UI["Expiry Monitor & Smart Alerts"]
+        EXP_UI["Expiry Monitor & Alerts"]
         RX_UI["Prescription Queue"]
         DASH_UI["Operational KPI Dashboard"]
     end
 
-    subgraph API ["REST API Layer (Django REST Framework v1)"]
-        AUTH["/api/v1/auth/ (JWT + RBAC)"]
+    subgraph API["REST API Layer (Django REST Framework v1)"]
+        AUTH["/api/v1/auth/ (JWT & RBAC)"]
         MED["/api/v1/medicines/"]
         INV["/api/v1/inventory/ (FEFO Engine)"]
-        PUR["/api/v1/purchases/"]
         SALES["/api/v1/sales/ (Transactional Checkout)"]
+        PUR["/api/v1/purchases/"]
         RX["/api/v1/prescriptions/"]
-        CUST["/api/v1/customers/"]
-        ANL["/api/v1/analytics/ (KPI Telemetry)"]
+        ANL["/api/v1/analytics/ (Telemetry)"]
         DOCS["/api/v1/schema/swagger-ui/"]
     end
 
-    subgraph DB ["Persistence Layer (MySQL / Django ORM)"]
-        M_MED["Medicine Catalog"]
-        M_BATCH["Batches (1:N Multi-batch)"]
-        M_SUP["Suppliers & POs"]
-        M_SALE["Sales & Invoice Line Items"]
+    subgraph DB["Persistence Layer (MySQL / Django ORM)"]
+        M_MED["Medicine Catalog & Batches"]
+        M_SUP["Suppliers & Purchase Orders"]
+        M_SALE["Sales & Invoice Items"]
         M_ALLOC["SaleItem Batch Allocations"]
         M_AUDIT["Inventory Audit Ledger"]
     end
 
-    Frontend -->|HTTP / JSON (Bearer JWT)| API
-    API --> DB
+    UI -->|"HTTP / REST API (JWT Authenticated)"| AUTH
+    AUTH --> MED
+    AUTH --> INV
+    AUTH --> SALES
+    AUTH --> PUR
+    AUTH --> RX
+    AUTH --> ANL
+    SALES --> M_SALE
+    SALES --> M_ALLOC
+    INV --> M_ALLOC
+    PUR --> M_SUP
+    MED --> M_MED
+    M_ALLOC --> M_AUDIT
 ```
 
 ---
