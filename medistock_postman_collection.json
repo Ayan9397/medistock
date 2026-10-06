@@ -1,0 +1,301 @@
+{
+  "info": {
+    "name": "MediStock — Pharmacy Management Platform API",
+    "description": "Production REST API collection for MediStock enterprise pharmacy platform. Includes Authentication, FEFO Inventory Allocation, POS Billing, Prescriptions, Suppliers, and Analytics KPIs.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://medistock-0irl.onrender.com",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Authentication",
+      "item": [
+        {
+          "name": "Login (Admin) - Obtain JWT",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.access) {",
+                  "    pm.collectionVariables.set('token', jsonData.access);",
+                  "    console.log('Saved JWT access token to collection variable');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"admin\",\n  \"password\": \"admin123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "login", ""]
+            }
+          }
+        },
+        {
+          "name": "Get Current User Profile (/me)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/me/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "me", ""]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Medicines Catalog",
+      "item": [
+        {
+          "name": "List All Medicines",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/medicines/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "medicines", ""]
+            }
+          }
+        },
+        {
+          "name": "Search Medicine by Name / Generic",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/medicines/?search=Paracetamol",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "medicines", ""],
+              "query": [{ "key": "search", "value": "Paracetamol" }]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Inventory & FEFO Engine",
+      "item": [
+        {
+          "name": "List Batches (Sorted by Expiry)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/inventory/batches/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "inventory", "batches", ""]
+            }
+          }
+        },
+        {
+          "name": "Simulate FEFO Allocation (Preview)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"medicine_id\": 1,\n  \"quantity\": 25\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/inventory/fefo-preview/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "inventory", "fefo-preview", ""]
+            }
+          }
+        },
+        {
+          "name": "Smart Inventory Alerts & Expiry Tiers",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/inventory/alerts/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "inventory", "alerts", ""]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. POS Billing & Sales",
+      "item": [
+        {
+          "name": "Checkout Sale (Atomic FEFO Deduction)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_name_walkin\": \"Walk-in Patient\",\n  \"discount_percentage\": 5.0,\n  \"tax_percentage\": 5.0,\n  \"payment_method\": \"CASH\",\n  \"items\": [\n    {\n      \"medicine_id\": 1,\n      \"quantity\": 2\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/sales/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "sales", ""]
+            }
+          }
+        },
+        {
+          "name": "List Past Sales & Invoices",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/sales/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "sales", ""]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Prescriptions Workflow",
+      "item": [
+        {
+          "name": "List Prescriptions",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/prescriptions/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "prescriptions", ""]
+            }
+          }
+        },
+        {
+          "name": "Verify Prescription (Approve)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"APPROVE\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/prescriptions/1/verify/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "prescriptions", "1", "verify", ""]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Purchases & Suppliers",
+      "item": [
+        {
+          "name": "List Suppliers",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/suppliers/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "suppliers", ""]
+            }
+          }
+        },
+        {
+          "name": "List Purchase Orders",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/purchases/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "purchases", ""]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Analytics & KPIs",
+      "item": [
+        {
+          "name": "Get Operational KPIs",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/analytics/kpis/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "analytics", "kpis", ""]
+            }
+          }
+        },
+        {
+          "name": "Get Analytics Chart Telemetry",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/analytics/charts/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "analytics", "charts", ""]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
