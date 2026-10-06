@@ -1,5 +1,14 @@
 # 🚀 MediStock — Intelligent Medical Store & Pharmacy Management Platform
 
+> ### 🌐 Live Cloud Deployment
+> - **Production URL**: **[https://medistock-0irl.onrender.com](https://medistock-0irl.onrender.com)**
+> - **Swagger API Documentation**: **[https://medistock-0irl.onrender.com/api/v1/schema/swagger-ui/](https://medistock-0irl.onrender.com/api/v1/schema/swagger-ui/)**
+> - **Demo Credentials**: 
+>   - **Admin**: `admin` / `admin123`
+>   - **Pharmacist**: `pharmacist` / `pharma123`
+>   - **Inventory**: `inventory` / `inv123`
+>   - *(Or use the 1-click Role Switcher inside the UI)*
+
 [![Live Demo](https://img.shields.io/badge/Live_Demo-medistock--0irl.onrender.com-success.svg?style=for-the-badge&logo=render)](https://medistock-0irl.onrender.com)
 [![Swagger](https://img.shields.io/badge/API_Docs-Interactive_Swagger-85EA2D.svg?style=for-the-badge&logo=swagger)](https://medistock-0irl.onrender.com/api/v1/schema/swagger-ui/)
 
