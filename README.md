@@ -218,6 +218,17 @@ All endpoints are versioned under `/api/v1/`:
 | **Analytics** | `GET` | `/api/v1/analytics/kpis/` | Sales & inventory operational metrics |
 | **Swagger** | `GET` | `/api/v1/schema/swagger-ui/` | OpenAPI 3.0 Interactive Documentation |
 
+### 📮 Postman API Collection
+An exportable, fully configured Postman collection is included directly in the repository root:
+- File: [`medistock_postman_collection.json`](file:///C:/Users/mohda/OneDrive/Desktop/Engineers%20Project/medistock/medistock_postman_collection.json)
+- Includes automated environment variables, JWT bearer authentication headers, and requests for:
+  - `POST /api/v1/auth/login/` (JWT token extraction)
+  - `GET /api/v1/medicines/`
+  - `POST /api/v1/inventory/fefo-preview/`
+  - `GET /api/v1/inventory/alerts/`
+  - `POST /api/v1/sales/` (Transactional POS checkout)
+  - `GET /api/v1/analytics/kpis/`
+
 ---
 
 ## 🚀 Getting Started
